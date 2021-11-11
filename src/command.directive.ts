@@ -203,7 +203,6 @@ export class CommandDirective implements OnInit, OnDestroy {
 	private syncDisabledAttribute() {
 		const attr = this.element.nativeElement.getAttribute("disabled");
 		const isDisabled = attr === "" || !!attr;
-		console.error("syncDisabledAttribute", this.element.nativeElement.id, isDisabled);
 
 		if (isDisabled !== this.disabled) {
 			this.setDisabled(!!this.disabled);
