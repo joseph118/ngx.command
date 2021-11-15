@@ -8,9 +8,10 @@ import {
 	Inject,
 	Renderer2,
 	ChangeDetectorRef,
+	HostBinding,
 } from "@angular/core";
-import { BehaviorSubject, Subject } from "rxjs";
-import { tap, takeUntil } from "rxjs/operators";
+import { BehaviorSubject, EMPTY, Subject } from "rxjs";
+import { tap, takeUntil, switchMap, filter, delay } from "rxjs/operators";
 
 import { CommandOptions, COMMAND_CONFIG } from "./config";
 import { Command } from "./command";
@@ -84,17 +85,31 @@ export class CommandDirective implements OnInit, OnDestroy {
 
 	@Input(`${SELECTOR}Params`) commandParams: unknown | unknown[];
 
-	@Input(`${SELECTOR}Disabled`)
-	get disabled(): boolean | undefined { return this._disabled; }
-	set disabled(value: boolean | undefined) {
+	@Input()
+	get disabled(): boolean { return this._disabled; }
+	set disabled(value: boolean) {
+		if (value === this.disabled) {
+			return;
+		}
 		this._disabled = value;
+		this.attrDisabled = value;
+	}
+
+	@HostBinding("attr.disabled")
+	get attrDisabled(): boolean | undefined { return this._attrDisabled$.value; }
+	set attrDisabled(value: boolean | undefined) {
+		if (value === this.attrDisabled) {
+			return;
+		}
+		console.error(value);
+		this._attrDisabled$.next(value);
 	}
 
 	get command(): ICommand { return this._command; }
 	private _command!: ICommand;
-	private _disabled: boolean | undefined;
+	private _disabled = false;
+	private readonly _attrDisabled$ = new BehaviorSubject<boolean | undefined>(undefined);
 	private readonly _commandOptions$ = new BehaviorSubject<CommandOptions>(this.config);
-	private readonly disabledAttributeObserver = new MutationObserver(() => this.syncDisabledAttribute());
 	private readonly _destroy$ = new Subject<void>();
 
 	constructor(
@@ -105,7 +120,7 @@ export class CommandDirective implements OnInit, OnDestroy {
 	) { }
 
 	ngOnInit(): void {
-		this.setDisabled(true);
+		this.disabled = true;
 		// console.log("[ssvCommand::init]", this.config);
 		if (!this.commandOrCreator) {
 			throw new Error("ssvCommand: [ssvCommand] should be defined!");
@@ -135,17 +150,18 @@ export class CommandDirective implements OnInit, OnDestroy {
 
 		this._command.subscribe();
 		this._commandOptions$.pipe(
-			tap(x => x.handleDisabled
-				? this.disabledAttributeObserver.observe(this.element.nativeElement, {
-					attributeFilter: ["disabled"],
-				})
-				: this.disabledAttributeObserver.disconnect()
+			switchMap(x => x.handleDisabled
+				? this._attrDisabled$
+				: EMPTY
 			),
+			filter(x => x !== undefined && x !== this.disabled),
+			tap(() => this.setDisabledProperty(this.disabled)),
+			tap(() => this.cdr.markForCheck()),
 			takeUntil(this._destroy$),
 		).subscribe();
 
 		this._command.canExecute$.pipe(
-			tap(canExecute => this.setDisabled(!canExecute)),
+			tap(canExecute => this.disabled = !canExecute),
 			tap(() => this.cdr.markForCheck()),
 			takeUntil(this._destroy$),
 		).subscribe();
@@ -186,28 +202,15 @@ export class CommandDirective implements OnInit, OnDestroy {
 		this._destroy$.next();
 		this._destroy$.complete();
 		this._commandOptions$.complete();
-		this.disabledAttributeObserver.disconnect();
+		this._attrDisabled$.complete();
 		if (this._command) {
 			this._command.unsubscribe();
 		}
 	}
 
-	private setDisabled(disabled: boolean) {
-		this.disabled = disabled;
-
-		if (this.commandOptions.handleDisabled) {
-			this.renderer.setProperty(this.element.nativeElement, "disabled", disabled);
-		}
-	}
-
-	private syncDisabledAttribute() {
-		const attr = this.element.nativeElement.getAttribute("disabled");
-		const isDisabled = attr === "" || !!attr;
-
-		if (isDisabled !== this.disabled) {
-			this.setDisabled(!!this.disabled);
-			this.cdr.markForCheck();
-		}
+	private setDisabledProperty(value: boolean) {
+		// this.renderer.setProperty(this.element.nativeElement, "disabled", value);
+		this.attrDisabled = value;
 	}
 
 }
