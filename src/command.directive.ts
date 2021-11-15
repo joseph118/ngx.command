@@ -11,7 +11,7 @@ import {
 	HostBinding,
 } from "@angular/core";
 import { BehaviorSubject, EMPTY, Subject } from "rxjs";
-import { tap, takeUntil, switchMap, filter, delay } from "rxjs/operators";
+import { tap, takeUntil, switchMap, distinctUntilChanged } from "rxjs/operators";
 
 import { CommandOptions, COMMAND_CONFIG } from "./config";
 import { Command } from "./command";
@@ -86,29 +86,18 @@ export class CommandDirective implements OnInit, OnDestroy {
 	@Input(`${SELECTOR}Params`) commandParams: unknown | unknown[];
 
 	@Input()
-	get disabled(): boolean { return this._disabled; }
+	@HostBinding("disabled")
+	get disabled(): boolean { return this._disabled$.value; }
 	set disabled(value: boolean) {
 		if (value === this.disabled) {
 			return;
 		}
-		this._disabled = value;
-		this.attrDisabled = value;
-	}
-
-	@HostBinding("attr.disabled")
-	get attrDisabled(): boolean | undefined { return this._attrDisabled$.value; }
-	set attrDisabled(value: boolean | undefined) {
-		if (value === this.attrDisabled) {
-			return;
-		}
-		console.error(value);
-		this._attrDisabled$.next(value);
+		this._disabled$.next(value);
 	}
 
 	get command(): ICommand { return this._command; }
 	private _command!: ICommand;
-	private _disabled = false;
-	private readonly _attrDisabled$ = new BehaviorSubject<boolean | undefined>(undefined);
+	private readonly _disabled$ = new BehaviorSubject<boolean>(false);
 	private readonly _commandOptions$ = new BehaviorSubject<CommandOptions>(this.config);
 	private readonly _destroy$ = new Subject<void>();
 
@@ -151,11 +140,11 @@ export class CommandDirective implements OnInit, OnDestroy {
 		this._command.subscribe();
 		this._commandOptions$.pipe(
 			switchMap(x => x.handleDisabled
-				? this._attrDisabled$
+				? this._disabled$
 				: EMPTY
 			),
-			filter(x => x !== undefined && x !== this.disabled),
-			tap(() => this.setDisabledProperty(this.disabled)),
+			distinctUntilChanged(),
+			tap(x => this.disabled = x),
 			tap(() => this.cdr.markForCheck()),
 			takeUntil(this._destroy$),
 		).subscribe();
@@ -202,15 +191,10 @@ export class CommandDirective implements OnInit, OnDestroy {
 		this._destroy$.next();
 		this._destroy$.complete();
 		this._commandOptions$.complete();
-		this._attrDisabled$.complete();
+		this._disabled$.complete();
 		if (this._command) {
 			this._command.unsubscribe();
 		}
-	}
-
-	private setDisabledProperty(value: boolean) {
-		// this.renderer.setProperty(this.element.nativeElement, "disabled", value);
-		this.attrDisabled = value;
 	}
 
 }
